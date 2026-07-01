@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SIGNAL — Xtream IPTV Tuner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mpegts.js/1.7.3/mpegts.min.js"></script>
+<style>
+  :root{
+    --bg:#0c0f14;
+    --panel:#13181f;
+    --panel-2:#1a212b;
+    --line:#252e3a;
+    --ink:#e7eef6;
+    --mut:#7f8b9a;
+    --signal:#2dd4bf;   /* tuner teal */
+    --air:#f0a202;      /* on-air amber */
+    --bad:#ef5e6b;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;overflow:hidden;
+  }
+  button{font-family:inherit;cursor:pointer}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  /* ---------- LOGIN ---------- */
+  #login{position:fixed;inset:0;display:grid;place-items:center;padding:20px}
+  .card{
+    width:min(440px,100%);background:var(--panel);border:1px solid var(--line);
+    border-radius:14px;padding:28px;position:relative;overflow:hidden;
+  }
+  .card::before{
+    content:"";position:absolute;top:0;left:0;right:0;height:2px;
+    background:linear-gradient(90deg,transparent,var(--signal),transparent);
+    animation:sweep 3.5s linear infinite;
+  }
+  @keyframes sweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .dot{width:11px;height:11px;border-radius:50%;background:var(--signal);box-shadow:0 0 12px var(--signal)}
+  .brand h1{font:600 22px/1 var(--mono);letter-spacing:.22em;margin:0}
+  .sub{font:400 12px/1.4 var(--mono);color:var(--mut);letter-spacing:.08em;margin:0 0 22px}
+  label{display:block;font:500 11px/1 var(--mono);letter-spacing:.12em;color:var(--mut);
+    text-transform:uppercase;margin:14px 0 6px}
+  input,select{
+    width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);
+    border-radius:8px;padding:11px 12px;font:400 14px/1 var(--sans);outline:none;
+  }
+  input:focus,select:focus{border-color:var(--signal);box-shadow:0 0 0 3px rgba(45,212,191,.12)}
+  .row{display:flex;gap:10px}
+  .row>div{flex:1}
+  .hint{font:400 11px/1.5 var(--mono);color:var(--mut);margin-top:6px}
+  .go{
+    width:100%;margin-top:22px;background:var(--signal);color:#04201c;border:0;
+    border-radius:8px;padding:13px;font:700 13px/1 var(--mono);letter-spacing:.14em;
+    text-transform:uppercase;transition:filter .15s;
+  }
+  .go:hover{filter:brightness(1.08)}
+  .go:disabled{opacity:.5;cursor:wait}
+  .err{color:var(--bad);font:500 12px/1.5 var(--mono);margin-top:14px;min-height:1em}
+
+  /* ---------- APP SHELL ---------- */
+  #app{display:none;height:100%;grid-template-rows:auto 1fr}
+  .topbar{
+    display:flex;align-items:center;gap:18px;padding:0 16px;height:54px;
+    border-bottom:1px solid var(--line);background:var(--panel);
+  }
+  .topbar .brand h1{font-size:16px}
+  .tabs{display:flex;gap:4px;margin-left:8px}
+  .tab{
+    background:transparent;border:1px solid transparent;color:var(--mut);
+    padding:8px 14px;border-radius:7px;font:600 12px/1 var(--mono);letter-spacing:.1em;
+  }
+  .tab.active{color:var(--ink);background:var(--panel-2);border-color:var(--line)}
+  .tab:hover{color:var(--ink)}
+  .acct{margin-left:auto;display:flex;align-items:center;gap:14px;font:400 11px/1.4 var(--mono);color:var(--mut)}
+  .acct b{color:var(--signal)}
+  .logout{background:transparent;border:1px solid var(--line);color:var(--mut);
+    padding:7px 12px;border-radius:7px;font:600 11px/1 var(--mono);letter-spacing:.1em}
+  .logout:hover{border-color:var(--bad);color:var(--bad)}
+
+  .body{display:grid;grid-template-columns:230px 320px 1fr;min-height:0}
+  .col{min-height:0;overflow-y:auto;border-right:1px solid var(--line)}
+  .colhead{
+    position:sticky;top:0;background:var(--panel);padding:12px 14px;
+    font:600 11px/1 var(--mono);letter-spacing:.14em;color:var(--mut);
+    text-transform:uppercase;border-bottom:1px solid var(--line);z-index:2;
+  }
+  .cat{
+    padding:11px 14px;font:400 13px/1.3 var(--sans);color:var(--mut);
+    border-bottom:1px solid rgba(37,46,58,.5);display:flex;justify-content:space-between;gap:8px;
+  }
+  .cat:hover{color:var(--ink);background:var(--panel)}
+  .cat.active{color:var(--ink);background:var(--panel-2);box-shadow:inset 3px 0 0 var(--signal)}
+  .cat .ct{font:400 11px/1 var(--mono);color:var(--mut);opacity:.7;flex:none}
+
+  .searchwrap{position:sticky;top:0;background:var(--panel);padding:10px 12px;border-bottom:1px solid var(--line);z-index:2}
+  .searchwrap input{padding:9px 11px;font-size:13px}
+  .item{
+    display:flex;align-items:center;gap:11px;padding:10px 14px;
+    border-bottom:1px solid rgba(37,46,58,.5);
+  }
+  .item:hover{background:var(--panel)}
+  .item.active{background:var(--panel-2);box-shadow:inset 3px 0 0 var(--air)}
+  .num{font:600 11px/1 var(--mono);color:var(--mut);width:34px;flex:none;text-align:right}
+  .ico{width:38px;height:38px;border-radius:6px;background:var(--bg);object-fit:contain;flex:none;border:1px solid var(--line)}
+  .nm{font:500 13px/1.3 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* ---------- TUNER ---------- */
+  .tuner{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .screen{position:relative;background:#000;aspect-ratio:16/9;flex:none}
+  .screen video{width:100%;height:100%;display:block;background:#000}
+  .scan{position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(0deg,rgba(255,255,255,.03) 0 1px,transparent 1px 3px);
+    opacity:.5;mix-blend-mode:overlay}
+  .placeholder{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:20px}
+  .placeholder p{font:400 13px/1.6 var(--mono);color:var(--mut);letter-spacing:.06em;max-width:340px}
+  .onair{position:absolute;top:12px;left:12px;display:none;align-items:center;gap:7px;
+    background:rgba(0,0,0,.6);padding:6px 10px;border-radius:6px;backdrop-filter:blur(4px)}
+  .onair.live{display:flex}
+  .pulse{width:8px;height:8px;border-radius:50%;background:var(--air);animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .onair span{font:700 10px/1 var(--mono);letter-spacing:.18em;color:var(--air)}
+  .nowinfo{padding:16px 18px;border-top:1px solid var(--line)}
+  .nowinfo .t{font:600 16px/1.3 var(--sans);margin:0 0 6px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 16px;font:400 11px/1 var(--mono);color:var(--mut);letter-spacing:.06em}
+  .meta b{color:var(--signal)}
+  .epg{margin-top:12px;font:400 12px/1.5 var(--sans);color:var(--mut);max-height:80px;overflow-y:auto}
+  .epg div{padding:2px 0}
+  .epg time{color:var(--signal);font:500 11px/1 var(--mono);margin-right:8px}
+
+  .loading{padding:40px;text-align:center;color:var(--mut);font:400 12px/1 var(--mono);letter-spacing:.1em}
+  .empty{padding:30px 16px;color:var(--mut);font:400 12px/1.6 var(--mono);text-align:center}
+
+  @media (max-width:900px){
+    body{overflow:auto}
+    #app{height:auto;min-height:100%}
+    .body{grid-template-columns:1fr;height:auto}
+    .col{max-height:240px;border-right:0;border-bottom:1px solid var(--line)}
+    .tuner{order:-1}
+    .topbar{flex-wrap:wrap;height:auto;padding:10px 12px;gap:10px}
+    .acct{width:100%;order:3}
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login">
+  <div class="card">
+    <div class="brand"><span class="dot"></span><h1>SIGNAL</h1></div>
+    <p class="sub">XTREAM CODES TUNER // ENTER PROVIDER CREDENTIALS</p>
+
+    <label for="url">Server URL</label>
+    <input id="url" placeholder="http://example.com:8080" autocomplete="off" spellcheck="false" />
+
+    <div class="row">
+      <div>
+        <label for="user">Username</label>
+        <input id="user" autocomplete="off" spellcheck="false" />
+      </div>
+      <div>
+        <label for="pass">Password</label>
+        <input id="pass" type="password" autocomplete="off" />
+      </div>
+    </div>
+
+    <label for="proxy">CORS Proxy <span style="text-transform:none;color:var(--mut)">(optional)</span></label>
+    <input id="proxy" placeholder="https://your-proxy/?  (leave blank if not needed)" autocomplete="off" spellcheck="false" />
+    <p class="hint">Browsers block cross-origin API calls. If login fails with a network error, paste a CORS proxy prefix here, or run this file behind your own proxy.</p>
+
+    <label for="fmt">Live stream format</label>
+    <select id="fmt">
+      <option value="m3u8">HLS (.m3u8) — most compatible</option>
+      <option value="ts">MPEG-TS (.ts) — lower latency</option>
+    </select>
+
+    <button class="go" id="connect">Connect</button>
+    <div class="err" id="loginErr"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><h1>SIGNAL</h1></div>
+    <div class="tabs">
+      <button class="tab active" data-tab="live">LIVE</button>
+      <button class="tab" data-tab="vod">MOVIES</button>
+      <button class="tab" data-tab="series">SERIES</button>
+    </div>
+    <div class="acct">
+      <span id="acctStatus">—</span>
+      <button class="logout" id="logout">DISCONNECT</button>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- categories -->
+    <div class="col" id="catCol">
+      <div class="colhead">Categories</div>
+      <div id="cats"></div>
+    </div>
+
+    <!-- items -->
+    <div class="col" id="itemCol">
+      <div class="searchwrap"><input id="search" placeholder="Filter channels…" /></div>
+      <div id="items"><div class="empty">Select a category</div></div>
+    </div>
+
+    <!-- tuner -->
+    <div class="tuner">
+      <div class="screen">
+        <video id="video" controls playsinline></video>
+        <div class="scan"></div>
+        <div class="onair" id="onair"><span class="pulse"></span><span>ON AIR</span></div>
+        <div class="placeholder" id="placeholder">
+          <p>NO SIGNAL // select a channel to begin tuning</p>
+        </div>
+      </div>
+      <div class="nowinfo">
+        <p class="t" id="nowTitle">Standby</p>
+        <div class="meta" id="nowMeta"><span>STATUS <b>IDLE</b></span></div>
+        <div class="epg" id="epg"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const state = {
+  url:"", user:"", pass:"", proxy:"", fmt:"m3u8",
+  tab:"live", cats:[], items:[], activeCat:null, activeItem:null,
+  hls:null, mpegts:null
+};
+
+/* ---------------- API ---------------- */
+function apiUrl(params){
+  const base = state.url + "/player_api.php";
+  const q = new URLSearchParams({ username: state.user, password: state.pass, ...params });
+  return state.proxy + base + "?" + q.toString();
+}
+async function api(params){
+  const r = await fetch(apiUrl(params), { cache:"no-store" });
+  if(!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+function streamUrl(type, id, ext){
+  const u = `${state.url}/${type}/${encodeURIComponent(state.user)}/${encodeURIComponent(state.pass)}/${id}.${ext}`;
+  return u;
+}
+
+/* ---------------- LOGIN ---------------- */
+$("#connect").addEventListener("click", connect);
+["url","user","pass"].forEach(id =>
+  $("#"+id).addEventListener("keydown", e => { if(e.key==="Enter") connect(); }));
+
+async function connect(){
+  const btn = $("#connect"), err = $("#loginErr");
+  err.textContent = "";
+  state.url   = $("#url").value.trim().replace(/\/+$/,"");
+  state.user  = $("#user").value.trim();
+  state.pass  = $("#pass").value;
+  state.proxy = $("#proxy").value.trim();
+  state.fmt   = $("#fmt").value;
+
+  if(!state.url || !state.user || !state.pass){ err.textContent = "All credential fields are required."; return; }
+  if(!/^https?:\/\//i.test(state.url)){ err.textContent = "Server URL must start with http:// or https://"; return; }
+
+  btn.disabled = true; btn.textContent = "Connecting…";
+  try{
+    const info = await api({});
+    if(!info || !info.user_info || info.user_info.auth === 0){
+      throw new Error("Authentication rejected by server.");
+    }
+    const ui = info.user_info, si = info.server_info || {};
+    let statusBits = [];
+    if(ui.status) statusBits.push(ui.status.toUpperCase());
+    if(ui.exp_date) statusBits.push("EXP " + new Date(ui.exp_date*1000).toLocaleDateString());
+    if(ui.max_connections) statusBits.push(ui.active_cons + "/" + ui.max_connections + " CONN");
+    $("#acctStatus").innerHTML = `<b>${state.user}</b> · ${statusBits.join(" · ") || "OK"}`;
+
+    $("#login").style.display = "none";
+    $("#app").style.display = "grid";
+    loadTab("live");
+  }catch(e){
+    err.textContent = "Connection failed: " + e.message +
+      (/Failed to fetch|NetworkError/i.test(e.message) ? " — likely CORS. Try a CORS proxy or run behind a proxy." : "");
+  }finally{
+    btn.disabled = false; btn.textContent = "Connect";
+  }
+}
+
+$("#logout").addEventListener("click", () => {
+  stopPlayback();
+  $("#app").style.display = "none";
+  $("#login").style.display = "grid";
+  $("#pass").value = "";
+});
+
+/* ---------------- TABS ---------------- */
+document.querySelectorAll(".tab").forEach(t =>
+  t.addEventListener("click", () => loadTab(t.dataset.tab)));
+
+const TAB_CFG = {
+  live:   { catAction:"get_live_categories",   itemAction:"get_live_streams",  type:"live",   filter:"Filter channels…" },
+  vod:    { catAction:"get_vod_categories",    itemAction:"get_vod_streams",   type:"movie",  filter:"Filter movies…" },
+  series: { catAction:"get_series_categories", itemAction:"get_series",        type:"series", filter:"Filter series…" }
+};
+
+async function loadTab(tab){
+  state.tab = tab; state.activeCat = null;
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab===tab));
+  $("#search").placeholder = TAB_CFG[tab].filter;
+  $("#search").value = "";
+  $("#items").innerHTML = `<div class="empty">Select a category</div>`;
+  $("#cats").innerHTML = `<div class="loading">SCANNING…</div>`;
+  try{
+    const cats = await api({ action: TAB_CFG[tab].catAction });
+    state.cats = Array.isArray(cats) ? cats : [];
+    renderCats();
+    if(state.cats.length) selectCat(state.cats[0]);
+  }catch(e){
+    $("#cats").innerHTML = `<div class="empty">Failed to load.<br>${e.message}</div>`;
+  }
+}
+
+function renderCats(){
+  const wrap = $("#cats");
+  if(!state.cats.length){ wrap.innerHTML = `<div class="empty">No categories</div>`; return; }
+  wrap.innerHTML = "";
+  state.cats.forEach(c => {
+    const el = document.createElement("div");
+    el.className = "cat";
+    el.innerHTML = `<span>${esc(c.category_name)}</span>`;
+    el.addEventListener("click", () => selectCat(c, el));
+    wrap.appendChild(el);
+    c._el = el;
+  });
+}
+
+async function selectCat(cat, el){
+  state.activeCat = cat;
+  document.querySelectorAll("#cats .cat").forEach(x => x.classList.remove("active"));
+  (el || cat._el)?.classList.add("active");
+  $("#items").innerHTML = `<div class="loading">LOADING…</div>`;
+  try{
+    const items = await api({ action: TAB_CFG[state.tab].itemAction, category_id: cat.category_id });
+    state.items = Array.isArray(items) ? items : [];
+    renderItems();
+  }catch(e){
+    $("#items").innerHTML = `<div class="empty">Failed to load.<br>${e.message}</div>`;
+  }
+}
+
+function renderItems(filter=""){
+  const wrap = $("#items");
+  const f = filter.toLowerCase();
+  const list = state.items.filter(it => (it.name||"").toLowerCase().includes(f));
+  if(!list.length){ wrap.innerHTML = `<div class="empty">No results</div>`; return; }
+  wrap.innerHTML = "";
+  list.forEach(it => {
+    const el = document.createElement("div");
+    el.className = "item";
+    const icon = it.stream_icon || it.cover || "";
+    const numTxt = it.num != null ? it.num : "";
+    el.innerHTML =
+      `<span class="num">${numTxt}</span>` +
+      (icon ? `<img class="ico" src="${esc(icon)}" onerror="this.style.visibility='hidden'">` : `<span class="ico"></span>`) +
+      `<span class="nm">${esc(it.name)}</span>`;
+    el.addEventListener("click", () => onItemClick(it, el));
+    wrap.appendChild(el);
+  });
+}
+
+$("#search").addEventListener("input", e => renderItems(e.target.value));
+
+/* ---------------- PLAYBACK ---------------- */
+async function onItemClick(it, el){
+  document.querySelectorAll("#items .item").forEach(x => x.classList.remove("active"));
+  el.classList.add("active");
+  state.activeItem = it;
+  $("#epg").innerHTML = "";
+
+  if(state.tab === "series"){
+    return openSeries(it);
+  }
+  if(state.tab === "vod"){
+    const ext = it.container_extension || "mp4";
+    play(streamUrl("movie", it.stream_id, ext), it.name, false, {
+      meta:[["TYPE","MOVIE"], it.rating?["RATING", it.rating]:null, it.container_extension?["FORMAT", it.container_extension.toUpperCase()]:null]
+    });
+    return;
+  }
+  // LIVE
+  play(streamUrl("live", it.stream_id, state.fmt), it.name, true, {
+    meta:[["CH", it.num||"—"], ["FORMAT", state.fmt.toUpperCase()], ["TYPE","LIVE"]]
+  });
+  loadEpg(it.stream_id);
+}
+
+async function openSeries(it){
+  $("#nowTitle").textContent = it.name;
+  setMeta([["TYPE","SERIES"], ["LOADING","…"]]);
+  try{
+    const info = await api({ action:"get_series_info", series_id: it.series_id });
+    const seasons = info.episodes || {};
+    const keys = Object.keys(seasons).sort((a,b)=>a-b);
+    if(!keys.length){ $("#epg").innerHTML = `<div>No episodes found.</div>`; setMeta([["TYPE","SERIES"]]); return; }
+    let html = "";
+    keys.forEach(s => {
+      html += `<div style="color:var(--signal);font-family:var(--mono);font-size:11px;letter-spacing:.1em;margin:8px 0 4px">SEASON ${s}</div>`;
+      seasons[s].forEach(ep => {
+        const ext = ep.container_extension || "mp4";
+        html += `<div style="cursor:pointer;padding:4px 0" data-id="${ep.id}" data-ext="${ext}" data-nm="${esc(ep.title||('Ep '+ep.episode_num))}">
+          <time>E${String(ep.episode_num).padStart(2,'0')}</time>${esc(ep.title || ('Episode '+ep.episode_num))}</div>`;
+      });
+    });
+    $("#epg").innerHTML = html;
+    $("#epg").querySelectorAll("[data-id]").forEach(row => {
+      row.addEventListener("click", () => {
+        play(streamUrl("series", row.dataset.id, row.dataset.ext), it.name + " — " + row.dataset.nm, false,
+          { meta:[["TYPE","SERIES"], ["FORMAT", row.dataset.ext.toUpperCase()]] });
+      });
+    });
+    setMeta([["TYPE","SERIES"], ["SEASONS", keys.length], ["INFO","select an episode →"]]);
+  }catch(e){
+    $("#epg").innerHTML = `<div>Failed to load episodes: ${e.message}</div>`;
+  }
+}
+
+async function loadEpg(streamId){
+  try{
+    const r = await api({ action:"get_short_epg", stream_id: streamId, limit: 5 });
+    const list = (r && r.epg_listings) || [];
+    if(!list.length) return;
+    $("#epg").innerHTML = list.map(e => {
+      const t = new Date(e.start_timestamp*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      const title = decodeB64(e.title);
+      return `<div><time>${t}</time>${esc(title)}</div>`;
+    }).join("");
+  }catch(_){/* EPG optional */}
+}
+
+function play(url, title, isLive, opts={}){
+  stopPlayback();
+  const video = $("#video");
+  $("#placeholder").style.display = "none";
+  $("#onair").classList.toggle("live", !!isLive);
+  $("#nowTitle").textContent = title;
+  setMeta(opts.meta || [["STATUS","TUNING"]]);
+
+  const isHls = /\.m3u8(\?|$)/i.test(url);
+  const isTs  = /\.ts(\?|$)/i.test(url);
+
+  if(isHls && window.Hls && Hls.isSupported()){
+    state.hls = new Hls({ lowLatencyMode:isLive, enableWorker:true });
+    state.hls.loadSource(url);
+    state.hls.attachMedia(video);
+    state.hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(()=>{}));
+    state.hls.on(Hls.Events.ERROR, (_,d) => { if(d.fatal) showError("Stream error: " + d.type); });
+  } else if(isTs && window.mpegts && mpegts.isSupported()){
+    state.mpegts = mpegts.createPlayer({ type:"mpegts", isLive, url });
+    state.mpegts.attachMediaElement(video);
+    state.mpegts.load();
+    state.mpegts.play().catch(()=>{});
+    state.mpegts.on(mpegts.Events.ERROR, () => showError("MPEG-TS stream error"));
+  } else {
+    // native (mp4/mkv or Safari HLS)
+    video.src = url;
+    video.play().catch(()=>{});
+    video.onerror = () => showError("This format can't play natively in the browser. Try HLS (.m3u8) format, or a desktop player.");
+  }
+}
+
+function stopPlayback(){
+  const video = $("#video");
+  video.onerror = null;
+  if(state.hls){ try{state.hls.destroy();}catch(_){} state.hls=null; }
+  if(state.mpegts){ try{state.mpegts.destroy();}catch(_){} state.mpegts=null; }
+  video.pause(); video.removeAttribute("src"); video.load();
+}
+
+function showError(msg){
+  $("#placeholder").style.display = "grid";
+  $("#placeholder").querySelector("p").textContent = msg;
+  $("#onair").classList.remove("live");
+}
+
+/* ---------------- HELPERS ---------------- */
+function setMeta(pairs){
+  $("#nowMeta").innerHTML = pairs.filter(Boolean)
+    .map(([k,v]) => `<span>${esc(k)} <b>${esc(String(v))}</b></span>`).join("");
+}
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function decodeB64(s){ try{ return decodeURIComponent(escape(atob(s))); }catch(_){ return s||""; } }
+</script>
+</body>
+</html>
